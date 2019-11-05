@@ -6,6 +6,7 @@ local terrain_res = 256
 local terrain_size = 200
 
 local chunky_pixels = 1
+
 function love.load()
 	pixel = love.graphics.newCanvas(1, 1)
 
@@ -70,13 +71,19 @@ function love.load()
 end
 
 local t = love.math.random()
-local t_scale = 10000
+local t_scale = (1 / 10000)
+
+local cam_t = love.math.random() * math.pi * 2
+local cam_t_scale = (1 / 20) * math.pi * 2
+
 function love.draw()
 	--render to canvas
 	love.graphics.setCanvas(terrain_canvas)
+	
+	love.graphics.setBlendMode("alpha", "alphamultiply")
+	
 	love.graphics.setShader(shaders.world)
 	shaders.world:send("t", t)
-	love.graphics.setBlendMode("alpha", "alphamultiply")
 
 	love.graphics.draw(
 		pixel,
@@ -101,7 +108,7 @@ function love.draw()
 	)
 	love.graphics.setShader(shaders.mesh)
 	shaders.mesh:send("terrain", terrain_canvas)
-	shaders.mesh:send("obj_euler", {love.timer.getTime() * 0.05, 0.0, math.pi * 0.5})
+	shaders.mesh:send("obj_euler", {cam_t, 0.0, math.pi * 0.5})
 	shaders.mesh:send("cam_offset", {0, terrain_size * -0.2, terrain_size * 0.5})
 	shaders.mesh:send("cam_euler", {0, 0, -0.5})
 	-- shaders.mesh:send("terrain_res", terrain_res)
@@ -138,7 +145,9 @@ function love.draw()
 end
 
 function love.update(dt)
-	t = t + dt / t_scale
+	t = t + dt * t_scale
+	cam_t = cam_t + dt * cam_t_scale 
+
 	last_dt = dt
 end
 

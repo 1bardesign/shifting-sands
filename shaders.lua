@@ -43,7 +43,7 @@ float noise(vec2 x, float u, float v ) {
 	return (wv / wt) * 2.0 - 1.0;
 }
 
-const float diminish_octave_scale = 0.25;
+const float diminish_octave_scale = 0.5;
 float distorted_noise(vec2 x, int iters, float u, float v, vec2 vo1, vec2 vo2) {
 	float diminish_octave = float(iters) * diminish_octave_scale;
 	for(int i = 0; i < iters; i++) {
@@ -74,32 +74,19 @@ vec2 rotate(vec2 x, float t) {
 }
 
 const float TAU = 3.14159;
-float fracnoise(vec2 p, float t) {
+float fracnoise(vec2 p, float t, int distortions, int octaves) {
 	float n = 0.0;
 
-	n += distorted_noise(
-		p * 0.097 + vec2(269.5, 183.3),
-		8,
-		1.0, 1.0,
-		rotate(vec2(127.1, 311.7), t * TAU + 0.3),
-		rotate(vec2(269.5, 183.3), -t * TAU + 0.2)
-	) * 0.5;
-
-	n += distorted_noise(
-		p * 0.13,
-		6,
-		1.0, 0.8,
-		rotate(vec2(127.1, 311.7), t * TAU + 0.3),
-		rotate(vec2(269.5, 183.3), -t * TAU + 0.2)
-	) * 0.3;
-
-	n += distorted_noise(
-		p * 0.21 - vec2(269.5, 183.3),
-		4,
-		1.0, 0.7,
-		rotate(vec2(127.1, 311.7), (t * 1.5) * TAU - 0.3),
-		rotate(vec2(269.5, 183.3), -(t * 1.5) * TAU - 0.5)
-	) * 0.2;
+	for(int i = 0; i < octaves; i++) {
+		float f = pow(0.5, float(i + 1));
+		n += f * distorted_noise(
+			p * 0.1 * float(i + 1) + vec2(69.5, 13.3) * i,
+			distortions,
+			1.0, 1.0,
+			rotate(vec2(127.1, 311.7),  t * TAU + float(i)),
+			rotate(vec2(269.5, 183.3), -t * TAU + float(i))
+		);
+	}
 
 	return n;
 }
@@ -107,8 +94,7 @@ float fracnoise(vec2 p, float t) {
 vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords) {
 	vec2 pos = screen_coords * 0.25 * detail_scale;
 
-
-	float n = fracnoise(pos, t);
+	float n = fracnoise(pos, t, 1, 8);
 
 	float dmid = length(texture_coords - vec2(0.5));
 
@@ -144,7 +130,6 @@ vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords) {
 ]])
 
 local mesh_shader = love.graphics.newShader([[
-
 extern Image terrain;
 
 extern Image gradient_map;
@@ -156,6 +141,17 @@ extern vec3 cam_offset;
 extern vec3 cam_euler;
 
 extern vec3 obj_euler;
+
+const bool ortho = false;
+
+vec2 rotate(vec2 v, float t) {
+	float s = sin(t);
+	float c = cos(t);
+	return vec2(
+		v.x * c + v.y * -s,
+		v.x * s + v.y * c
+	);
+}
 
 vec3 rotate_euler(vec3 v, vec3 e) {
 	v.xy = rotate(v.xy, e.x);
@@ -177,15 +173,6 @@ mat4 proj(vec2 screen, float fov, float near, float far) {
 		0.0, ypr, 0.0, 0.0,
 		0.0, 0.0, zpr, -1.0,
 		0.0, 0.0, zhpr, 0.0
-	);
-}
-
-vec2 rotate(vec2 v, float t) {
-	float s = sin(t);
-	float c = cos(t);
-	return vec2(
-		v.x * c + v.y * -s,
-		v.x * s + v.y * c
 	);
 }
 
@@ -220,7 +207,6 @@ float height_at(vec2 uv) {
 }
 
 #ifdef VERTEX
-const bool ortho = false;
 vec4 position(mat4 transform_projection, vec4 vertex_position) {
 	vec2 uv = VaryingTexCoord.xy;
 	vec4 t = Texel(terrain, uv);
