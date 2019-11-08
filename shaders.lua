@@ -12,8 +12,8 @@ vec2 rotate(vec2 v, float t) {
 ]]
 
 local shader_3d_stuff = [[
-extern vec3 cam_offset;
-extern vec3 cam_euler;
+extern vec3 cam_from;
+extern vec3 cam_to;
 
 extern vec3 obj_euler;
 
@@ -24,6 +24,30 @@ vec3 rotate_euler(vec3 v, vec3 e) {
 	v.xz = rotate(v.xz, e.y);
 	v.yz = rotate(v.yz, e.z);
 	return v;
+}
+
+mat4 camera_from_to(vec3 from, vec3 to) {
+	vec3 forward = normalize(from - to);
+	vec3 right = cross(vec3(0.0, 1.0, 0.0), forward);
+	vec3 up = cross(forward, right);
+	float d_r = dot(right, -from);
+	float d_u = dot(up, -from);
+	float d_f = dot(forward, -from);
+#if 1
+	return mat4(
+		right.x, up.x, forward.x, 0.0,
+		right.y, up.y, forward.y, 0.0,
+		right.z, up.z, forward.z, 0.0,
+		d_r,     d_u,  d_f,       1.0
+	);
+#else
+	return mat4(
+		right.x,   right.y,   right.z,   d_r,
+		up.x,      up.y,      up.z,      d_u,
+		forward.x, forward.y, forward.z, d_f,
+		0.0,       0.0,       0.0,       1.0
+	);
+#endif
 }
 
 mat4 proj(vec2 screen, float fov, float near, float far) {
@@ -46,11 +70,11 @@ vec4 transform_to_screen(vec4 v) {
 	//apply object rotation
 	v.xyz = rotate_euler(v.xyz, obj_euler);
 
-	//move camera
-	v.xyz -= cam_offset.xyz;
-
-	//rotate camera
-	v.xyz = rotate_euler(v.xyz, cam_euler);
+	//rotate camera to look at point
+	v = camera_from_to(
+		cam_from,
+		cam_to
+	) * v;
 
 	//ortho cam
 	if (ortho) {
@@ -140,13 +164,38 @@ float fracnoise(vec2 p, float t, float u, float v, int octaves, float octave_fac
 }
 ]]
 
+local gradient_shader = love.graphics.newShader([[
+extern vec2 texture_size;
+extern Image height_map;
+#ifdef PIXEL
+float height(Image t, vec2 uv) {
+	return Texel(height_map, Texel(t, uv).xy).x;
+}
+
+vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen_coords) {
+	vec2 uv_r = vec2(0.5, 0.0) / texture_size.x;
+	vec2 uv_u = vec2(0.0, 0.5) / texture_size.y;
+	vec2 d = vec2(
+		height(tex, uv - uv_r) - height(tex, uv + uv_r),
+		height(tex, uv - uv_u) - height(tex, uv + uv_u)
+	);
+	return vec4(
+		d.x,
+		d.y,
+		sqrt(1.0 - dot(d, d)),
+		1.0
+	);
+}
+#endif
+]])
+
 local world_shader = love.graphics.newShader(shader_common_stuff..shader_noise_stuff..[[
 extern float t;
 extern float detail_scale;
 extern vec2 seed_offset;
 
 #ifdef PIXEL
-vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords) {
+vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen_coords) {
 	vec2 pos = screen_coords * 0.05 * detail_scale + seed_offset;
 
 	//points for distance
@@ -165,10 +214,10 @@ vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords) {
 
 	float dmid = min(
 		min(
-			length(texture_coords - p1),
-			length(texture_coords - p2)
+			length(uv - p1),
+			length(uv - p2)
 		),
-		length(texture_coords - p3)
+		length(uv - p3)
 	);
 
 	float n = fracnoise(
@@ -216,6 +265,7 @@ local shader_terrain_stuff = [[
 extern Image height_map;
 
 extern Image terrain;
+extern Image terrain_grad;
 
 extern float height_scale;
 
@@ -229,7 +279,9 @@ float height_at(vec2 uv) {
 ]]
 
 local terrain_mesh_shader = love.graphics.newShader(shader_common_stuff..shader_3d_stuff..shader_terrain_stuff..[[
-extern Image gradient_map;
+extern Image colour_map;
+
+varying vec3 v_normal;
 
 #ifdef VERTEX
 vec4 position(mat4 transform_projection, vec4 vertex_position) {
@@ -245,13 +297,38 @@ vec4 position(mat4 transform_projection, vec4 vertex_position) {
 
 	//project height
 	vertex_position.z = h;
+
+	//send gradient
+	v_normal = Texel(terrain_grad, uv).rgb * vec3(1.0, 1.0, 1.0 / height_scale);
 	
 	return transform_to_screen(vertex_position);
 }
 #endif
 #ifdef PIXEL
+const vec3 light_dir = vec3(0, 0, 1);
+const vec3 light_col = vec3(0.7, 0.6, 0.3);
+const vec3 light_ambient = vec3(1.0) - light_col;
 vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords) {
-	color.rgb = Texel(gradient_map, texture_coords).rgb;
+	color.rgb = Texel(colour_map, texture_coords).rgb;
+
+	//surface normal
+	vec3 normal = normalize(v_normal);
+
+	//calc lighting
+	vec3 light_amount = light_ambient;
+
+	//directional light
+	float diffuse_amount = max(
+		0.0,
+		dot(
+			normal,
+			normalize(light_dir)
+		)
+	);
+	light_amount += light_col * diffuse_amount;
+
+	//multiply light
+	color.rgb *= light_amount;
 
 	return color;
 }
@@ -259,7 +336,7 @@ vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords) {
 ]])
 
 local vegetation_mesh_shader = love.graphics.newShader(shader_common_stuff..shader_noise_stuff..shader_3d_stuff..shader_terrain_stuff..[[
-extern Image gradient_map;
+extern Image colour_map;
 
 extern float veg_height_scale;
 extern float terrain_res;
@@ -304,11 +381,11 @@ vec4 position(mat4 transform_projection, vec4 vertex_position) {
 		vec3(0.0, 0.2, 0.1),
 		vec3(0.1, 0.3, 0.0),
 		point
-	) + hash3(uv * 1000.0) * 0.05;
+	) + hash3(uv * 1000.0) * -0.1;
 	
 	//mix with underlying colour
 	VaryingColor = mix(
-		Texel(gradient_map, luv),
+		Texel(colour_map, luv),
 		VaryingColor,
 		veg_amount * 0.25 + point * 0.5
 	);
@@ -336,6 +413,7 @@ vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords) {
 
 return {
 	world = world_shader,
+	gradient = gradient_shader,
 	terrain_mesh = terrain_mesh_shader,
 	vegetation_mesh = vegetation_mesh_shader,
 }

@@ -1,3 +1,6 @@
+--shorthand
+lg = love.graphics
+
 local shaders = require("shaders")
 
 local detail_scale = 1
@@ -15,19 +18,21 @@ function send_uniform_table(shader, t)
 	end
 end
 
+function love.resize(w, h)
+	cw, ch = math.floor(w / chunky_pixels), math.floor(h / chunky_pixels)
+	
+	sbc = lg.newCanvas(cw, ch, {
+		msaa = 0,
+	})
+	sbc:setFilter("nearest", "nearest")
+end
+
 function love.load()
 	first_draw = true
 
-	pixel = love.graphics.newCanvas(1, 1)
+	pixel = lg.newCanvas(1, 1)
 
-	--screenbuffer
-	sw, sh = love.graphics.getDimensions()
-	cw, ch = math.floor(sw / chunky_pixels), math.floor(sh / chunky_pixels)
-	
-	sbc = love.graphics.newCanvas(cw, ch, {
-		msaa = 16,
-	})
-	sbc:setFilter("nearest", "nearest")
+	love.resize(lg.getDimensions())
 
 	--terrain geom
 	local verts = {}
@@ -65,7 +70,7 @@ function love.load()
 		end
 	end
 	--upload to gpu
-	terrain_mesh = love.graphics.newMesh( #verts, "triangles", "static")
+	terrain_mesh = lg.newMesh( #verts, "triangles", "static")
 	terrain_mesh:setVertices(verts)
 	terrain_mesh:setVertexMap(indices)
 
@@ -125,15 +130,16 @@ function love.load()
 	end
 
 	--
-	vegetation_mesh = love.graphics.newMesh( #veg_verts, "triangles", "static")
+	vegetation_mesh = lg.newMesh( #veg_verts, "triangles", "static")
 	vegetation_mesh:setVertices(veg_verts)
 	vegetation_mesh:setVertexMap(veg_indices)
 
 	--canvas for rendering terrain
-	terrain_canvas = love.graphics.newCanvas(terrain_res, terrain_res, {format="rgba16f"})
+	terrain_canvas = lg.newCanvas(terrain_res, terrain_res, {format="rgba16f"})
+	gradient_canvas = lg.newCanvas(terrain_res, terrain_res, {format="rgba16f"})
 
-	gradient_map = love.graphics.newImage("grad.png")
-	height_map = love.graphics.newImage("height.png")
+	colour_map = lg.newImage("grad.png")
+	height_map = lg.newImage("height.png")
 
 	world_shader_uniforms = {
 		detail_scale = detail_scale,
@@ -143,18 +149,29 @@ function love.load()
 		},
 		t = love.math.random(),
 	}
-
 	send_uniform_table(shaders.world, world_shader_uniforms)
 
+	gradient_shader_uniforms = {
+		texture_size = {terrain_res, terrain_res},
+		height_map = height_map,
+	}
+	send_uniform_table(shaders.gradient, gradient_shader_uniforms)
+
 	mesh_shader_uniforms = {
-		gradient_map = gradient_map,
+		colour_map = colour_map,
 		height_map = height_map,
 		height_scale = 32,
 		terrain = terrain_canvas,
+		terrain_grad = gradient_canvas,
 		terrain_res = terrain_res,
 		obj_euler = {0, 0.0, math.pi * 0.5},
-		cam_offset = {0, terrain_size * -0.3, terrain_size * 0.7},
-		cam_euler = {0, 0, -math.pi * 0.5 * 0.25},
+		--camera
+		cam_from = {
+			0,
+			terrain_size * -0.3,
+			terrain_size * 0.7
+		},
+		cam_to = {0, 0, 0},
 
 		veg_vert_start = veg_offset,
 		veg_height_scale = 2,
@@ -171,29 +188,34 @@ end
 local t_scale = (1 / 1000)
 
 function render_terrain()
-	love.graphics.setCanvas(terrain_canvas)
-	love.graphics.setBlendMode("alpha", "alphamultiply")
-	love.graphics.setShader(shaders.world)
 
 	local skip_draw = false
 
 	if first_draw then
-		love.graphics.setColor(1,1,1,1)
+		lg.setColor(1,1,1,1)
 	else
-		love.graphics.setColor(1,1,1, 0.01)
+		lg.setColor(1,1,1, 0.01)
 		skip_draw = true
 	end
 
 	if not skip_draw then
-		love.graphics.draw(
+		lg.setCanvas(terrain_canvas)
+		lg.setBlendMode("alpha", "alphamultiply")
+		lg.setShader(shaders.world)
+		lg.draw(
 			pixel,
 			0, 0,
 			0,
 			terrain_res, terrain_res
 		)
+
+		lg.setCanvas(gradient_canvas)
+		lg.setShader(shaders.gradient)
+		lg.draw(terrain_canvas)
+
 	end
 
-	love.graphics.setColor(1,1,1,1)
+	lg.setColor(1,1,1,1)
 end
 
 local cam_t = love.math.random() * math.pi * 2
@@ -203,7 +225,11 @@ function love.draw()
 	--update shaders
 	send_uniform_table(shaders.world, world_shader_uniforms)
 
-	mesh_shader_uniforms.obj_euler[1] = cam_t
+	local c_o = mesh_shader_uniforms.cam_from
+	local l = (0.4 + math.sin(cam_t * 0.3) * 0.2) * terrain_res
+	c_o[1] = math.sin(cam_t) * l
+	c_o[3] = math.cos(cam_t) * l
+
 	for i,v in ipairs{
 		shaders.terrain_mesh,
 		shaders.vegetation_mesh,
@@ -215,54 +241,56 @@ function love.draw()
 	render_terrain()
 	
 	--render mesh
-	love.graphics.setBlendMode("alpha", "alphamultiply")
-	love.graphics.setCanvas({
+	lg.setBlendMode("alpha", "alphamultiply")
+	lg.setCanvas({
 		sbc,
 		depth = true,
 	})
-	love.graphics.setDepthMode("greater", true)
+	lg.setDepthMode("greater", true)
 	
 	--clear to sea col (todo: lookup from tex)
 	local r = 0x1b / 255
 	local g = 0x30 / 255
 	local b = 0x99 / 255
-	love.graphics.clear(
+	lg.clear(
 		r, g, b, 1.0,
 		0, 0
 	)
 
-	love.graphics.setShader(shaders.terrain_mesh)
+	lg.setShader(shaders.terrain_mesh)
 	--render island
-	love.graphics.draw(
+	lg.draw(
 		terrain_mesh,
 		cw * 0.5, ch * 0.5
 	)
 	--render vegetation
-	love.graphics.setShader(shaders.vegetation_mesh)
+	lg.setShader(shaders.vegetation_mesh)
 	--render island
-	love.graphics.draw(
+	lg.draw(
 		vegetation_mesh,
 		cw * 0.5, ch * 0.5
 	)
 
 	--upscale canvas to screen
-	love.graphics.setBlendMode("alpha", "premultiplied")
-	love.graphics.setDepthMode()
-	love.graphics.setShader()
-	love.graphics.setCanvas()
-	love.graphics.draw(
+	lg.setBlendMode("alpha", "premultiplied")
+	lg.setDepthMode()
+	lg.setShader()
+	lg.setCanvas()
+	lg.draw(
 		sbc,
-		sw * 0.5, sh * 0.5,
+		lg.getWidth() * 0.5, lg.getHeight() * 0.5,
 		0,
 		chunky_pixels, chunky_pixels,
 		cw * 0.5, ch * 0.5
 	)
 	
 	if love.keyboard.isDown("`") then
-		love.graphics.draw(terrain_canvas)
+		lg.setBlendMode("alpha", "alphamultiply")
 
-		love.graphics.setBlendMode("alpha", "alphamultiply")
-		love.graphics.print(string.format(
+		lg.draw(terrain_canvas, 0, 0)
+		lg.draw(gradient_canvas, terrain_canvas:getWidth(), 0)
+
+		lg.print(string.format(
 			"fps: %d - %04.3f",
 			love.timer.getFPS(),
 			tostring(last_dt)
