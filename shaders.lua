@@ -279,6 +279,7 @@ vec4 position(mat4 transform_projection, vec4 vertex_position) {
 			1.0, 1.0
 		)
 	);
+	voff = voff * 2.0;
 	uv += voff / terrain_res;
 	vertex_position.xy += voff;
 
@@ -290,6 +291,11 @@ vec4 position(mat4 transform_projection, vec4 vertex_position) {
 
 	bool is_point = (VaryingColor.r == 0.0);
 	float point = float(is_point);
+
+	if(veg_amount <= 0.0 && is_point) {
+		//clip
+		return vec4(1.0 / 0.0);
+	}
 
 	//write vert colour
 	
@@ -306,11 +312,6 @@ vec4 position(mat4 transform_projection, vec4 vertex_position) {
 		VaryingColor,
 		veg_amount * 0.25 + point * 0.5
 	);
-
-	if(veg_amount <= 0.0 && is_point) {
-		//clip
-		return vec4(0.0 / 0.0);
-	}
 
 	float h = 
 		height(luv)
