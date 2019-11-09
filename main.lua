@@ -7,6 +7,7 @@ local detail_scale = 1
 
 local terrain_res = 256
 local terrain_size = 200
+local terrain_height = 32
 
 local chunky_pixels = 1
 
@@ -83,6 +84,7 @@ function love.load()
 			local v = (y - 0.5) / terrain_res
 			local vx = (u - 0.5) * terrain_size
 			local vy = (v - 0.5) * terrain_size
+			local hs = 0.75
 			--centered point
 			table.insert(veg_verts, {
 				vx,
@@ -95,19 +97,19 @@ function love.load()
 			local i = #veg_verts
 			--corners
 			table.insert(veg_verts, {
-				vx - 0.5, vy - 0.5,
+				vx - hs, vy - hs,
 				u, v,
 			})
 			table.insert(veg_verts, {
-				vx + 0.5, vy - 0.5,
+				vx + hs, vy - hs,
 				u, v,
 			})
 			table.insert(veg_verts, {
-				vx + 0.5, vy + 0.5,
+				vx + hs, vy + hs,
 				u, v,
 			})
 			table.insert(veg_verts, {
-				vx - 0.5, vy + 0.5,
+				vx - hs, vy + hs,
 				u, v,
 			})
 
@@ -140,6 +142,9 @@ function love.load()
 
 	colour_map = lg.newImage("grad.png")
 	height_map = lg.newImage("height.png")
+	sea_colour_map = lg.newImage("sea.png")
+	foam_colour_map = lg.newImage("foam.png")
+	foam_colour_map:setWrap("repeat")
 
 	world_shader_uniforms = {
 		detail_scale = detail_scale,
@@ -160,7 +165,7 @@ function love.load()
 	mesh_shader_uniforms = {
 		colour_map = colour_map,
 		height_map = height_map,
-		height_scale = 32,
+		height_scale = terrain_height,
 		terrain = terrain_canvas,
 		terrain_grad = gradient_canvas,
 		terrain_res = terrain_res,
@@ -168,21 +173,19 @@ function love.load()
 		--camera
 		cam_from = {
 			0,
-			terrain_size * -0.3,
+			-(terrain_height + 1),
 			terrain_size * 0.7
 		},
 		cam_to = {0, 0, 0},
 
 		veg_vert_start = veg_offset,
 		veg_height_scale = 2,
-	}
 
-	for i,v in ipairs({
-		shaders.terrain_mesh,
-		shaders.vegetation_mesh,
-	}) do
-		send_uniform_table(v, mesh_shader_uniforms)
-	end
+		sea_colour_map = sea_colour_map,
+		foam_colour_map = foam_colour_map,
+		sea_level = terrain_height * 8 / 255,
+		foam_t = 0,
+	}
 end
 
 local t_scale = (1 / 1000)
@@ -225,16 +228,24 @@ function love.draw()
 	--update shaders
 	send_uniform_table(shaders.world, world_shader_uniforms)
 
-	local c_o = mesh_shader_uniforms.cam_from
-	local l = (0.4 + math.sin(cam_t * 0.3) * 0.2) * terrain_res
+	local g_t = love.timer.getTime();
+	local msu = mesh_shader_uniforms
+
+	local c_o = msu.cam_from
+	local l = (0.2 + math.sin(cam_t * 0.3) * 0.1) * terrain_size
 	c_o[1] = math.sin(cam_t) * l
 	c_o[3] = math.cos(cam_t) * l
+
+
+	msu.sea_level = terrain_height * (6 / 255) * (1.0 + 0.2 * math.sin(g_t / 10.0))
+	msu.foam_t = (g_t / 2.0) % 1
 
 	for i,v in ipairs{
 		shaders.terrain_mesh,
 		shaders.vegetation_mesh,
+		shaders.sea_mesh,
 	} do
-		send_uniform_table(v, mesh_shader_uniforms)
+		send_uniform_table(v, msu)
 	end
 
 	--render to canvas
@@ -253,7 +264,7 @@ function love.draw()
 	local g = 0x30 / 255
 	local b = 0x99 / 255
 	lg.clear(
-		r, g, b, 1.0,
+		r, g, b, 1,
 		0, 0
 	)
 
@@ -268,6 +279,14 @@ function love.draw()
 	--render island
 	lg.draw(
 		vegetation_mesh,
+		cw * 0.5, ch * 0.5
+	)
+
+	--render water
+	lg.setShader(shaders.sea_mesh)
+	--render island
+	lg.draw(
+		terrain_mesh,
 		cw * 0.5, ch * 0.5
 	)
 

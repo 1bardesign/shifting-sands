@@ -87,6 +87,26 @@ vec4 transform_to_screen(vec4 v) {
 	}
 	return v;
 }
+
+//todo: externs for this?
+const vec3 light_dir = vec3(0.5, 0.5, 1);
+const vec3 light_col = vec3(0.7, 0.6, 0.3);
+const vec3 light_ambient = vec3(1.0) - light_col;
+vec3 light_amount(vec3 normal) {
+	//calc lighting
+	vec3 light_amount = light_ambient;
+
+	//directional light
+	float diffuse_amount = max(
+		0.0,
+		dot(
+			normal,
+			normalize(light_dir)
+		)
+	);
+	light_amount += light_col * diffuse_amount;
+	return light_amount;
+}
 ]]
 
 local shader_noise_stuff = [[
@@ -199,26 +219,23 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen_coords) {
 	vec2 pos = screen_coords * 0.05 * detail_scale + seed_offset;
 
 	//points for distance
-	float hd = 0.2;
-	vec3 h1 = hd * hash3_signed(seed_offset);
-	vec3 h2 = hd * hash3_signed(seed_offset + vec2(38.1, 91.3));
-	
-	vec2 p1 = h1.xy;
-	vec2 p2 = h2.xy;
-	vec2 p3 = vec2(h1.z, h2.x);
-	vec2 cent = (p1 + p2 + p3) / 3.0;
+	float dmid = 1000.0;
+	float hd = 0.15;
 	vec2 mid = vec2(0.5);
-	p1 = p1 - cent + mid;
-	p2 = p2 - cent + mid;
-	p3 = p3 - cent + mid;
+	for(int i = 0; i < 3; i++) {
+		vec3 h = hash3(seed_offset + vec2(38.1, 91.3) * (i + 1));
+		float hb = fract((h.x + h.y + h.z) * 1337.0);
+		h.xy = rotate(vec2(h.x, 0.0), h.y * TAU);
+		//offset mid
+		h.xy = h.xy * hd + mid;
+		//scale
+		h.z = mix(0.9, 2.0, abs(h.z));
+		//calc distance
+		float d = length(uv - h.xy) * h.z;
 
-	float dmid = min(
-		min(
-			length(uv - p1),
-			length(uv - p2)
-		),
-		length(uv - p3)
-	);
+		//set dmid
+		dmid = min(dmid, d);
+	}
 
 	float n = fracnoise(
 		pos,
@@ -229,12 +246,7 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen_coords) {
 	n = 1.0 - abs(n) * 0.75;
 	n -= dmid * 3.0;
 
-	float biome = 0.5 + fracnoise(
-		pos * 0.51,
-		t, 1.0, 1.0,
-		1, 0.5,
-		0.0
-	) * 0.5;
+	float biome = 0.5 + noise(uv + seed_offset, 0.0, 1.0) * 0.5;
 
 	float vn = fracnoise(
 		pos * 0.56 + vec2(84.3, 75.1),
@@ -243,6 +255,7 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen_coords) {
 		4, 0.7,
 		1.0
 	);
+
 	float vegetation = float(
 		//noise bound
 		abs(vn) < 0.25
@@ -305,30 +318,14 @@ vec4 position(mat4 transform_projection, vec4 vertex_position) {
 }
 #endif
 #ifdef PIXEL
-const vec3 light_dir = vec3(0, 0, 1);
-const vec3 light_col = vec3(0.7, 0.6, 0.3);
-const vec3 light_ambient = vec3(1.0) - light_col;
 vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords) {
 	color.rgb = Texel(colour_map, texture_coords).rgb;
 
 	//surface normal
 	vec3 normal = normalize(v_normal);
 
-	//calc lighting
-	vec3 light_amount = light_ambient;
-
-	//directional light
-	float diffuse_amount = max(
-		0.0,
-		dot(
-			normal,
-			normalize(light_dir)
-		)
-	);
-	light_amount += light_col * diffuse_amount;
-
 	//multiply light
-	color.rgb *= light_amount;
+	color.rgb *= light_amount(normal);
 
 	return color;
 }
@@ -340,6 +337,8 @@ extern Image colour_map;
 
 extern float veg_height_scale;
 extern float terrain_res;
+
+varying vec3 v_normal;
 
 #ifdef VERTEX
 vec4 position(mat4 transform_projection, vec4 vertex_position) {
@@ -369,10 +368,17 @@ vec4 position(mat4 transform_projection, vec4 vertex_position) {
 	bool is_point = (VaryingColor.r == 0.0);
 	float point = float(is_point);
 
+	vec3 normal = Texel(terrain_grad, uv).rgb;
+	
+	veg_amount *= mix(-100.0, 1.0, normal.z);
+
 	if(veg_amount <= 0.0 && is_point) {
-		//clip
+		//clip with NaN
 		return vec4(1.0 / 0.0);
 	}
+
+	//write normal
+	v_normal = normal + vec3(0, 0, 0.1) * point;
 
 	//write vert colour
 	
@@ -392,8 +398,7 @@ vec4 position(mat4 transform_projection, vec4 vertex_position) {
 
 	float h = 
 		height(luv)
-		+ (point * 2.0 - 1.0)
-			* veg_height_scale * (veg_amount * point);
+		+ mix(-1.0, 1.0, point) * veg_height_scale * mix(1.0, veg_amount, point);
 
 	//forward to frag for grad map lookup
 	VaryingTexCoord.xy = luv;
@@ -406,14 +411,79 @@ vec4 position(mat4 transform_projection, vec4 vertex_position) {
 #endif
 #ifdef PIXEL
 vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords) {
+	//apply lighting
+	color.rgb *= light_amount(normalize(v_normal));
+
 	return color;
 }
 #endif
 ]])
+
+local sea_mesh_shader = love.graphics.newShader(shader_common_stuff..shader_3d_stuff..shader_terrain_stuff..shader_noise_stuff..[[
+extern float sea_level;
+float sea_grad_depth = 0.5;
+float sea_foam_ratio = 0.5;
+
+extern Image sea_colour_map;
+extern Image foam_colour_map;
+
+extern float foam_t;
+extern float terrain_res;
+
+#ifdef VERTEX
+vec4 position(mat4 transform_projection, vec4 vertex_position) {
+	vec2 uv = VaryingTexCoord.xy;
+	vec4 t = Texel(terrain, uv);
+
+	vec2 luv = t.xy;
+
+	//forward to frag for grad map lookup
+	VaryingTexCoord.xy = luv;
+
+	//project height
+	vertex_position.z = sea_level;
+	
+	return transform_to_screen(vertex_position);
+}
+#endif
+#ifdef PIXEL
+vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen_coords) {
+	float h = height(uv);
+
+	float grad_amount = clamp(
+		(h - (sea_level - sea_grad_depth)) / sea_grad_depth,
+		0.0, 1.0
+	);
+	
+	//base sea colour	
+	color = Texel(sea_colour_map, vec2(grad_amount, 0.0));
+
+	//animated foam
+	if(grad_amount > sea_foam_ratio && grad_amount < 1.0) {
+		float foam_fac = (grad_amount - sea_foam_ratio) / (1.0 - sea_foam_ratio);
+		vec2 fuv = vec2(
+			foam_fac - foam_t + noise(uv * terrain_res, 0.0, 1.0) * 0.05,
+			0.0
+		);
+		vec4 foam = Texel(foam_colour_map, fuv);
+		foam.a *= foam_fac;
+		color.rgb = mix(color.rgb, foam.rgb, foam.a);
+		color.a = max(color.a, foam.a);
+	}
+
+	//todo: multiply light
+	//color.rgb *= light_amount(normal);
+
+	return color;
+}
+#endif
+]])
+
 
 return {
 	world = world_shader,
 	gradient = gradient_shader,
 	terrain_mesh = terrain_mesh_shader,
 	vegetation_mesh = vegetation_mesh_shader,
+	sea_mesh = sea_mesh_shader,
 }
