@@ -288,7 +288,7 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen_coords) {
 		1.0, 1.0
 	) * 1.2;
 
-	float vegetation = float(abs(vn) < 0.5);
+	float vegetation = float(abs(vn) < 0.8) * clamp(1.0 - abs(vn), 0.4, 1.0);
 
 	return vec4(
 		n,
@@ -403,7 +403,11 @@ vec4 position(mat4 transform_projection, vec4 vertex_position) {
 	);
 	voff = voff * 2.0;
 	uv += voff / terrain_res;
+
 	vertex_position.xy += voff;
+
+	float tree_angle = noise(uv * 256 + vec2(158, 98), 0.0, 1.0) * 10.0 * TAU;
+	vertex_position.xy += rotate(VertexEdgeInfo.xy * 0.5 + abs(voff * 0.25), tree_angle);
 
 	//sample
 	vec4 t = Texel(terrain, uv);
@@ -417,7 +421,7 @@ vec4 position(mat4 transform_projection, vec4 vertex_position) {
 
 	float veg_amount = t.z * veg_allowed;
 
-	bool is_point = (VaryingColor.r == 0.0);
+	bool is_point = (VertexEdgeInfo.z == 1.0);
 	float point = float(is_point);
 
 	vec3 normal = Texel(terrain_grad, uv).rgb;
@@ -430,7 +434,11 @@ vec4 position(mat4 transform_projection, vec4 vertex_position) {
 	}
 
 	//write normal
-	v_normal = normal + vec3(0, 0, 0.1) * point;
+	v_normal = normalize(
+		normal + vec3(0, 0, 0.1) * point
+		//(looks better without the extra normal info for now; maybe with better lighting!)
+		//+ normalize(vec3(rotate(VertexEdgeInfo.xy, tree_angle), 1.0 + VertexEdgeInfo.z)) * 0.5
+	);
 
 	//write vert colour
 	

@@ -7,19 +7,18 @@ return function(w, h)
 	local font_body = lg.newFont(14)
 
 	local welcome_width = 300
-	local welcome_tray
-	welcome_tray = ui.tray:new(w * 0.5, h * 0.5, welcome_width, 84):add_children({
+	local welcome_tray = ui.tray:new(w * 0.5, h * 0.5, welcome_width, 84):add_children({
 		ui.text:new(font_heading, "Shifting Sands", welcome_width, "center"),
 		ui.text:new(font_body, table.concat({
 			"I built this little island generator for #procjam 2019",
 			"It does the majority of its work on the gpu, but i've tried to make sure"..
 			" that it will run ok on a modern integrated card.",
-			"Please let me know if you have any trouble on twitter or github",
-			"Enjoy!",
+			"The entire thing is open source (if a bit messy!), and is built with LÖVE (an excellent game framework).",
+			"I hope you enjoy it!",
 		}, "\n\n"), welcome_width, "left"),
 		ui.text:new(font_body, "~Max", welcome_width, "right"),
-		ui.button:new("(close welcome)", welcome_width + 20, 32, function()
-			container:remove_child(welcome_tray)
+		ui.button:new("Let me see!", welcome_width + 20, 32, function()
+			container:close_welcome()
 		end),
 	}):set_anchor("center", "center")
 
@@ -77,6 +76,11 @@ return function(w, h)
 	function container:resize(w, h)
 		--anything to do?
 		self:layout()
+	end
+
+	function container:close_welcome()
+		container:remove_child(welcome_tray)
+		closed_welcome = true
 	end
 
 	--get everything up to date

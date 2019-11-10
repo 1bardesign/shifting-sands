@@ -44,7 +44,7 @@ function love.load()
 	love.resize(lg.getDimensions())
 
 	--terrain geom
-	local terrain_vtable = {
+	local vtable = {
 		{"VertexPosition", "float", 2},
 		{"VertexTexCoord", "float", 2},
 		{"VertexEdgeInfo", "float", 3},
@@ -88,7 +88,7 @@ function love.load()
 		end
 	end
 	--upload to gpu
-	terrain_mesh = lg.newMesh(terrain_vtable, verts, "triangles", "static")
+	terrain_mesh = lg.newMesh(vtable, verts, "triangles", "static")
 	terrain_mesh:setVertexMap(indices)
 
 	--vegetation geom
@@ -107,26 +107,34 @@ function love.load()
 				vy,
 				--uvs
 				u, v,
-				--vert col as point flag
-				0.0
+				--edge info
+				0.0, 0.0, 1.0,
 			})
 			local i = #veg_verts
 			--corners
 			table.insert(veg_verts, {
-				vx - hs, vy - hs,
+				vx, vy,
 				u, v,
+				--edge info
+				-1.0, -1.0, 0.0,
 			})
 			table.insert(veg_verts, {
-				vx + hs, vy - hs,
+				vx, vy,
 				u, v,
+				--edge info
+				1.0, -1.0, 0.0,
 			})
 			table.insert(veg_verts, {
-				vx + hs, vy + hs,
+				vx, vy,
 				u, v,
+				--edge info
+				1.0, 1.0, 0.0,
 			})
 			table.insert(veg_verts, {
-				vx - hs, vy + hs,
+				vx, vy,
 				u, v,
+				--edge info
+				-1.0, 1.0, 0.0,
 			})
 
 			table.insert(veg_indices, i)
@@ -148,8 +156,7 @@ function love.load()
 	end
 
 	--
-	vegetation_mesh = lg.newMesh( #veg_verts, "triangles", "static")
-	vegetation_mesh:setVertices(veg_verts)
+	vegetation_mesh = lg.newMesh(vtable, veg_verts, "triangles", "static")
 	vegetation_mesh:setVertexMap(veg_indices)
 
 	--canvas for rendering terrain
@@ -388,6 +395,11 @@ function love.update(dt)
 end
 
 function love.keypressed(k)
+	if k == "escape" and not closed_welcome then
+		ui:close_welcome()
+		return
+	end
+
 	local ctrl = love.keyboard.isDown("lctrl")
 	if k == "r" then
 		if ctrl then
