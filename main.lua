@@ -3,6 +3,8 @@ lg = love.graphics
 
 local shaders = require("shaders")
 
+local ui = nil
+
 local detail_scale = 1
 
 local terrain_res = 256
@@ -26,6 +28,12 @@ function love.resize(w, h)
 		msaa = 0,
 	})
 	sbc:setFilter("nearest", "nearest")
+
+	if not ui then
+		ui = require("ui")(w, h)
+	else
+		ui:resize(w, h)
+	end
 end
 
 function love.load()
@@ -349,9 +357,14 @@ function love.draw()
 		cw * 0.5, ch * 0.5
 	)
 	
-	if love.keyboard.isDown("`") then
-		lg.setBlendMode("alpha", "alphamultiply")
+	--draw ui
+	lg.setBlendMode("alpha", "alphamultiply")
+	if not hide_ui then
+		ui:draw()
+	end
 
+	if love.keyboard.isDown("`") then
+		--debug
 		lg.draw(terrain_canvas, 0, 0)
 		lg.draw(gradient_canvas, terrain_canvas:getWidth(), 0)
 
@@ -369,6 +382,8 @@ function love.update(dt)
 	world_shader_uniforms.t = world_shader_uniforms.t + dt * t_scale
 	cam_t = cam_t + dt * cam_t_scale 
 
+	ui:update(dt)
+
 	last_dt = dt
 end
 
@@ -382,11 +397,31 @@ function love.keypressed(k)
 		end
 	elseif k == "q" and ctrl or k == "escape" then
 		love.event.quit()
-	elseif k == "s" and ctrl then
-		local id = sbc:newImageData()
-		love.filesystem.write(
-			string.format("screenshot-%d.png", os.time()),
-			id:encode("png")
-		)
 	end
 end
+
+--mouse handling
+--(single button for now)
+local is_clicked = false
+function love.mousemoved( x, y, dx, dy, istouch )
+	ui:pointer(is_clicked and "drag" or "move", x, y)
+end
+
+function love.mousepressed( x, y, button, istouch, presses )
+	if button == 1 then
+		if hide_ui then
+			hide_ui = false
+		else
+			ui:pointer("click", x, y)
+			is_clicked = true
+		end
+	end
+end
+
+function love.mousereleased( x, y, button, istouch, presses )
+	if button == 1 then
+		ui:pointer("release", x, y)
+		is_clicked = false
+	end
+end
+
