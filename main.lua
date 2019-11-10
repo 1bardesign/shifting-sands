@@ -9,7 +9,7 @@ local terrain_res = 256
 local terrain_size = 200
 local terrain_height = 32
 
-local chunky_pixels = 1
+local chunky_pixels = 2
 
 function send_uniform_table(shader, t)
 	for k, v in pairs(t) do
@@ -36,6 +36,11 @@ function love.load()
 	love.resize(lg.getDimensions())
 
 	--terrain geom
+	local terrain_vtable = {
+		{"VertexPosition", "float", 2},
+		{"VertexTexCoord", "float", 2},
+		{"VertexEdgeInfo", "float", 3},
+	}
 	local verts = {}
 	--generate corners
 	for y = 0, terrain_res do
@@ -48,6 +53,10 @@ function love.load()
 				(v - 0.5) * terrain_size,
 				--uvs
 				u, v,
+				--edge info
+				(x == 0 and -1 or x == terrain_res and 1 or 0.0),
+				(y == 0 and -1 or y == terrain_res and 1 or 0.0),
+				0,
 			})
 		end
 	end
@@ -71,8 +80,7 @@ function love.load()
 		end
 	end
 	--upload to gpu
-	terrain_mesh = lg.newMesh( #verts, "triangles", "static")
-	terrain_mesh:setVertices(verts)
+	terrain_mesh = lg.newMesh(terrain_vtable, verts, "triangles", "static")
 	terrain_mesh:setVertexMap(indices)
 
 	--vegetation geom
@@ -149,6 +157,7 @@ function love.load()
 	colour_map = love.image.newImageData(16, #climates)
 	vegetation_map = love.image.newImageData(16, #climates)
 	height_map = love.image.newImageData(16, #climates)
+	water_map = love.image.newImageData(16, #climates)
 	for i,v in ipairs(climates) do
 		local id = love.image.newImageData(
 			table.concat{"img/climates/", v, ".png"}
@@ -158,6 +167,7 @@ function love.load()
 			colour_map,
 			vegetation_map,
 			height_map,
+			water_map,
 		} do
 			onto:paste(id, 0, i-1, 0, j-1, w, 1)
 		end
@@ -167,6 +177,7 @@ function love.load()
 	height_map = lg.newImage(height_map)
 
 	vegetation_map = lg.newImage(vegetation_map)
+	water_map = lg.newImage(water_map, {linear=true})
 
 	sea_colour_map = lg.newImage("img/water/body.png")
 	foam_colour_map = lg.newImage("img/water/foam.png")
@@ -192,6 +203,8 @@ function love.load()
 		colour_map = colour_map,
 		vegetation_map = vegetation_map,
 		height_map = height_map,
+		water_map = water_map,
+
 		height_scale = terrain_height,
 		terrain = terrain_canvas,
 		terrain_grad = gradient_canvas,
@@ -212,6 +225,13 @@ function love.load()
 		foam_colour_map = foam_colour_map,
 		sea_level = 0, --set in draw
 		foam_t = 0,
+
+		sky_col = {
+			0x37 / 255,
+			0x7c / 255,
+			0xbd / 255,
+			1
+		},
 	}
 end
 
@@ -259,10 +279,9 @@ function love.draw()
 	local msu = mesh_shader_uniforms
 
 	local c_o = msu.cam_from
-	local l = (0.3 + math.sin(cam_t * 0.3) * 0.2) * terrain_size
+	local l = (0.35 + math.sin(cam_t * 0.3) * 0.1) * terrain_size
 	c_o[1] = math.sin(cam_t) * l
 	c_o[3] = math.cos(cam_t) * l
-
 
 	msu.sea_level = terrain_height * (6 / 255) * (1.0 + 0.2 * math.sin(g_t / 10.0))
 	msu.foam_t = (g_t / 2.0) % 1
@@ -286,24 +305,25 @@ function love.draw()
 	})
 	lg.setDepthMode("greater", true)
 	
-	--clear to sea col (todo: lookup from tex)
-	local r = 0x1b / 255
-	local g = 0x30 / 255
-	local b = 0x99 / 255
-	lg.clear(
-		r, g, b, 1,
-		0, 0
-	)
+	--clear to error col
+	do
+		local r = 0x80 / 255
+		local g = 0xb9 / 255
+		local b = 0xdf / 255
+		lg.clear(
+			r, g, b, 1,
+			0, 0
+		)
+	end
 
-	lg.setShader(shaders.terrain_mesh)
 	--render island
+	lg.setShader(shaders.terrain_mesh)
 	lg.draw(
 		terrain_mesh,
 		cw * 0.5, ch * 0.5
 	)
 	--render vegetation
 	lg.setShader(shaders.vegetation_mesh)
-	--render island
 	lg.draw(
 		vegetation_mesh,
 		cw * 0.5, ch * 0.5
@@ -311,7 +331,6 @@ function love.draw()
 
 	--render water
 	lg.setShader(shaders.sea_mesh)
-	--render island
 	lg.draw(
 		terrain_mesh,
 		cw * 0.5, ch * 0.5

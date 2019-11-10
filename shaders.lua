@@ -19,6 +19,9 @@ extern vec3 obj_euler;
 
 const bool ortho = false;
 
+varying float cam_distance;
+extern vec4 sky_col;
+
 vec3 rotate_euler(vec3 v, vec3 e) {
 	v.xy = rotate(v.xy, e.x);
 	v.xz = rotate(v.xz, e.y);
@@ -70,6 +73,11 @@ vec4 transform_to_screen(vec4 v) {
 	//apply object rotation
 	v.xyz = rotate_euler(v.xyz, obj_euler);
 
+#ifdef VERTEX
+	//write distance from camera
+	cam_distance = length(v.xyz - cam_from);
+#endif
+
 	//rotate camera to look at point
 	v = camera_from_to(
 		cam_from,
@@ -82,8 +90,17 @@ vec4 transform_to_screen(vec4 v) {
 		v.z /= 1000.0;
 	}
 	else {
-		//perspective cam
-		v = proj(love_ScreenSize.xy, 1.0, 1.0, 1000.0) * v;
+		if(true) {
+			//perspective cam with matrix
+			v = proj(love_ScreenSize.xy, 1.0, 1.0, 1000.0) * v;
+		} else {
+			//fisheye perspective
+			v.z = -(length(v.xyz) * 0.5);
+			v.xy /= -(v.z);
+			v.z /= 1000.0;
+			v.x /= love_ScreenSize.x / love_ScreenSize.y;
+			//v.w = v.z;
+		}
 	}
 	return v;
 }
@@ -107,6 +124,16 @@ vec3 light_amount(vec3 normal) {
 	light_amount += light_col * diffuse_amount;
 	return light_amount;
 }
+
+#ifdef PIXEL
+const float fog_start = 80.0;
+const float fog_depth = 100.0;
+vec3 do_fog(vec3 c) {
+	float fog_amount = clamp((cam_distance - fog_start) / fog_depth, 0.0, 1.0);
+	return mix(c, sky_col.rgb, fog_amount);
+}
+#endif
+
 ]]
 
 local shader_noise_stuff = [[
@@ -248,15 +275,20 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen_coords) {
 
 	float biome = 0.5 + noise(uv + seed_offset, 0.0, 1.0) * 0.5;
 
-	float vn = fracnoise(
+	float vn = noise(
 		pos * 0.16 + vec2(84.3, 75.1),
-		t,
-		0.5, 1.0,
-		4, 0.7,
-		1.0
+		0.0, 1.0
 	);
 
-	float vegetation = float(abs(vn) < 0.1);
+	vn = sin(
+		vn * 10.0 * TAU
+	) + 
+	noise(
+		pos * 1.26 + vec2(34.3, 15.1),
+		1.0, 1.0
+	) * 1.2;
+
+	float vegetation = float(abs(vn) < 0.5);
 
 	return vec4(
 		n,
@@ -269,6 +301,11 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen_coords) {
 ]])
 
 local shader_terrain_stuff = [[
+#ifdef VERTEX
+attribute vec3 VertexEdgeInfo;
+#endif
+const float edge_project_distance = 1000.0;
+
 extern Image height_map;
 
 extern Image terrain;
@@ -285,15 +322,24 @@ float height_at(vec2 uv) {
 }
 ]]
 
-local terrain_mesh_shader = love.graphics.newShader(shader_common_stuff..shader_3d_stuff..shader_terrain_stuff..[[
+local terrain_mesh_shader = love.graphics.newShader(shader_common_stuff..shader_3d_stuff..shader_terrain_stuff..shader_noise_stuff..[[
 extern Image colour_map;
 
 varying vec3 v_normal;
+varying vec2 v_pos;
 
 #ifdef VERTEX
 vec4 position(mat4 transform_projection, vec4 vertex_position) {
+	
+	//extrude edge verts
+	vertex_position.x = mix(vertex_position.x, edge_project_distance, VertexEdgeInfo.x);
+	vertex_position.y = mix(vertex_position.y, edge_project_distance, VertexEdgeInfo.y);
+
+	v_pos = vertex_position.xy;
+
 	vec2 uv = VaryingTexCoord.xy;
 	vec4 t = Texel(terrain, uv);
+
 
 	vec2 luv = t.xy;
 
@@ -312,14 +358,19 @@ vec4 position(mat4 transform_projection, vec4 vertex_position) {
 }
 #endif
 #ifdef PIXEL
-vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords) {
-	color.rgb = Texel(colour_map, texture_coords).rgb;
+vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen_coords) {
+	//offset
+	uv.x += noise(v_pos * 0.2, 0.0, 1.0) / 16.0;
+	
+	color.rgb = Texel(colour_map, uv).rgb;
 
 	//surface normal
 	vec3 normal = normalize(v_normal);
 
 	//multiply light
 	color.rgb *= light_amount(normal);
+
+	color.rgb = do_fog(color.rgb);
 
 	return color;
 }
@@ -332,7 +383,6 @@ extern Image vegetation_map;
 
 extern float veg_height_scale;
 extern float terrain_res;
-
 
 varying vec3 v_normal;
 
@@ -385,18 +435,18 @@ vec4 position(mat4 transform_projection, vec4 vertex_position) {
 	//write vert colour
 	
 	//pick native colour
-	VaryingColor.rgb = vt.rgb + hash3(uv * 1000.0) * -0.1;
+	VaryingColor.rgb = vt.rgb + hash3(uv * 1000.0) * -0.05;
 	
 	//mix with underlying colour
 	VaryingColor = mix(
 		Texel(colour_map, luv),
 		VaryingColor,
-		veg_amount * 0.25 + point * 0.5
+		veg_amount * mix(0.3, 0.7, point)
 	);
 
 	float h = 
 		height(luv)
-		+ mix(-1.0, 1.0, point) * veg_height_scale * mix(1.0, veg_amount, point);
+		+ mix(0.05, 1.0, point) * veg_height_scale * mix(1.0, veg_amount, point);
 
 	//forward to frag for grad map lookup
 	VaryingTexCoord.xy = luv;
@@ -412,6 +462,8 @@ vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords) {
 	//apply lighting
 	color.rgb *= light_amount(normalize(v_normal));
 
+	color.rgb = do_fog(color.rgb);
+
 	return color;
 }
 #endif
@@ -425,21 +477,45 @@ float sea_foam_ratio = 0.5;
 extern Image sea_colour_map;
 extern Image foam_colour_map;
 
+extern Image water_map;
+
 extern float foam_t;
 extern float terrain_res;
 
 #ifdef VERTEX
 vec4 position(mat4 transform_projection, vec4 vertex_position) {
-	vec2 uv = VaryingTexCoord.xy;
-	vec4 t = Texel(terrain, uv);
+	//extrude edge verts
+	bool is_edge = max(abs(VertexEdgeInfo.x), abs(VertexEdgeInfo.y)) > 0.0;
+	if(is_edge) {
+		//special bs edge vert
+		vertex_position.x = mix(vertex_position.x, edge_project_distance, VertexEdgeInfo.x);
+		vertex_position.y = mix(vertex_position.y, edge_project_distance, VertexEdgeInfo.y);
+		VaryingTexCoord.xy = vec2(0.0);
+	} else {
+		//normal water vert
+		vec2 uv = VaryingTexCoord.xy;
+		vec4 t = Texel(terrain, uv);
 
-	vec2 luv = t.xy;
+		vec2 luv = t.xy;
 
-	//forward to frag for grad map lookup
-	VaryingTexCoord.xy = luv;
+		//forward to frag for grad map lookup
+		VaryingTexCoord.xy = luv;
 
-	//project height
-	vertex_position.z = sea_level;
+		float h = height(uv);
+
+		//project height
+		vertex_position.z += sea_level;
+
+		//pull up to ground water level
+		//todo: figure out how to make this not cause huge issues on biome transition!
+		float ground_water = Texel(water_map, luv).r;
+		if (ground_water > 0.0) {
+			vertex_position.z = max(
+				vertex_position.z,
+				h + 0.01 * (ground_water - 0.5)
+			);
+		}
+	}
 	
 	return transform_to_screen(vertex_position);
 }
@@ -471,6 +547,8 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen_coords) {
 
 	//todo: multiply light
 	//color.rgb *= light_amount(normal);
+
+	color.rgb = do_fog(color.rgb);
 
 	return color;
 }
