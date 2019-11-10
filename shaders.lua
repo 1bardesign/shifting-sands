@@ -249,20 +249,14 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen_coords) {
 	float biome = 0.5 + noise(uv + seed_offset, 0.0, 1.0) * 0.5;
 
 	float vn = fracnoise(
-		pos * 0.56 + vec2(84.3, 75.1),
+		pos * 0.16 + vec2(84.3, 75.1),
 		t,
 		0.5, 1.0,
 		4, 0.7,
 		1.0
 	);
 
-	float vegetation = float(
-		//noise bound
-		abs(vn) < 0.25
-		//height bound
-		&& n > 0.4
-		&& n < 0.6
-	);
+	float vegetation = float(abs(vn) < 0.1);
 
 	return vec4(
 		n,
@@ -334,9 +328,11 @@ vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords) {
 
 local vegetation_mesh_shader = love.graphics.newShader(shader_common_stuff..shader_noise_stuff..shader_3d_stuff..shader_terrain_stuff..[[
 extern Image colour_map;
+extern Image vegetation_map;
 
 extern float veg_height_scale;
 extern float terrain_res;
+
 
 varying vec3 v_normal;
 
@@ -363,7 +359,13 @@ vec4 position(mat4 transform_projection, vec4 vertex_position) {
 	vec4 t = Texel(terrain, uv);
 
 	vec2 luv = t.xy;
-	float veg_amount = t.z;
+
+	//sample veg map
+	vec4 vt = Texel(vegetation_map, luv);
+
+	float veg_allowed = float(vt.a > 0.75);
+
+	float veg_amount = t.z * veg_allowed;
 
 	bool is_point = (VaryingColor.r == 0.0);
 	float point = float(is_point);
@@ -383,11 +385,7 @@ vec4 position(mat4 transform_projection, vec4 vertex_position) {
 	//write vert colour
 	
 	//pick native colour
-	VaryingColor.rgb = mix(
-		vec3(0.0, 0.2, 0.1),
-		vec3(0.1, 0.3, 0.0),
-		point
-	) + hash3(uv * 1000.0) * -0.1;
+	VaryingColor.rgb = vt.rgb + hash3(uv * 1000.0) * -0.1;
 	
 	//mix with underlying colour
 	VaryingColor = mix(

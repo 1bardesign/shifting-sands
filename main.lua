@@ -140,10 +140,36 @@ function love.load()
 	terrain_canvas = lg.newCanvas(terrain_res, terrain_res, {format="rgba16f"})
 	gradient_canvas = lg.newCanvas(terrain_res, terrain_res, {format="rgba16f"})
 
-	colour_map = lg.newImage("grad.png")
-	height_map = lg.newImage("height.png")
-	sea_colour_map = lg.newImage("sea.png")
-	foam_colour_map = lg.newImage("foam.png")
+	local climates = {
+		"cold",
+		"wet",
+		"temperate",
+		"dry",
+	}
+	colour_map = love.image.newImageData(16, #climates)
+	vegetation_map = love.image.newImageData(16, #climates)
+	height_map = love.image.newImageData(16, #climates)
+	for i,v in ipairs(climates) do
+		local id = love.image.newImageData(
+			table.concat{"img/climates/", v, ".png"}
+		)
+		local w = id:getWidth()
+		for j, onto in ipairs {
+			colour_map,
+			vegetation_map,
+			height_map,
+		} do
+			onto:paste(id, 0, i-1, 0, j-1, w, 1)
+		end
+	end
+
+	colour_map = lg.newImage(colour_map)
+	height_map = lg.newImage(height_map)
+
+	vegetation_map = lg.newImage(vegetation_map)
+
+	sea_colour_map = lg.newImage("img/water/body.png")
+	foam_colour_map = lg.newImage("img/water/foam.png")
 	foam_colour_map:setWrap("repeat")
 
 	world_shader_uniforms = {
@@ -164,6 +190,7 @@ function love.load()
 
 	mesh_shader_uniforms = {
 		colour_map = colour_map,
+		vegetation_map = vegetation_map,
 		height_map = height_map,
 		height_scale = terrain_height,
 		terrain = terrain_canvas,
@@ -173,8 +200,8 @@ function love.load()
 		--camera
 		cam_from = {
 			0,
-			-(terrain_height + 1),
-			terrain_size * 0.7
+			-(terrain_height * 1.5), --(only one not filled in in draw)
+			0,
 		},
 		cam_to = {0, 0, 0},
 
@@ -183,7 +210,7 @@ function love.load()
 
 		sea_colour_map = sea_colour_map,
 		foam_colour_map = foam_colour_map,
-		sea_level = terrain_height * 8 / 255,
+		sea_level = 0, --set in draw
 		foam_t = 0,
 	}
 end
@@ -232,7 +259,7 @@ function love.draw()
 	local msu = mesh_shader_uniforms
 
 	local c_o = msu.cam_from
-	local l = (0.2 + math.sin(cam_t * 0.3) * 0.1) * terrain_size
+	local l = (0.3 + math.sin(cam_t * 0.3) * 0.2) * terrain_size
 	c_o[1] = math.sin(cam_t) * l
 	c_o[3] = math.cos(cam_t) * l
 
