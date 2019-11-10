@@ -1,7 +1,7 @@
 --shorthand
 lg = love.graphics
 
-local shaders = require("shaders")
+local shaders = require("src.shaders")
 
 local ui = nil
 
@@ -30,7 +30,7 @@ function love.resize(w, h)
 	sbc:setFilter("nearest", "nearest")
 
 	if not ui then
-		ui = require("ui")(w, h)
+		ui = require("src.ui")(w, h)
 	else
 		ui:resize(w, h)
 	end
@@ -175,7 +175,7 @@ function love.load()
 	water_map = love.image.newImageData(16, #climates)
 	for i,v in ipairs(climates) do
 		local id = love.image.newImageData(
-			table.concat{"img/climates/", v, ".png"}
+			table.concat{"assets/climates/", v, ".png"}
 		)
 		local w = id:getWidth()
 		for j, onto in ipairs {
@@ -194,8 +194,8 @@ function love.load()
 	vegetation_map = lg.newImage(vegetation_map)
 	water_map = lg.newImage(water_map, {linear=true})
 
-	sea_colour_map = lg.newImage("img/water/body.png")
-	foam_colour_map = lg.newImage("img/water/foam.png")
+	sea_colour_map = lg.newImage("assets/water/body.png")
+	foam_colour_map = lg.newImage("assets/water/foam.png")
 	foam_colour_map:setWrap("repeat")
 
 	world_shader_uniforms = {

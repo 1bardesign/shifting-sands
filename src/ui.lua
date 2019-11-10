@@ -1,4 +1,4 @@
-local ui = require("partner.partner")
+local ui = require("lib.partner.partner")
 
 return function(w, h)
 	local container = ui.container:new()
@@ -51,7 +51,7 @@ return function(w, h)
 			love.system.openURL("https://twitter.com/1bardesign")
 		end),
 		ui.button:new("github", 100, 32, function()
-			love.system.openURL("https://github.com/1bardesign/procjam-2019")
+			love.system.openURL("https://github.com/1bardesign/shifting-sands")
 		end),
 	}):set_anchor("left", "bottom")
 
