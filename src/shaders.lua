@@ -264,7 +264,11 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen_coords) {
 	n = 1.0 - abs(n) * 0.75;
 	n -= dmid * 3.0;
 
-	float biome = 0.5 + noise(uv + seed_offset, 0.0, 1.0) * 0.5;
+
+	float biome = max(
+		0.0,
+		noise(uv + seed_offset, 0.0, 1.0)
+	);
 
 	float vn = noise(
 		pos * 0.16 + vec2(84.3, 75.1),
@@ -272,7 +276,7 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen_coords) {
 	);
 
 	vn = sin(
-		vn * 10.0 * TAU
+		vn * 5.0 * TAU
 	) + 
 	noise(
 		pos * 1.26 + vec2(34.3, 15.1),
@@ -311,9 +315,14 @@ float height(vec2 uv) {
 float height_at(vec2 uv) {
 	return height(Texel(terrain, uv).xy);
 }
+
+vec2 offset_terrain_read_uv(vec2 uv, vec2 pos) {
+	uv.x += noise(pos * 0.2, 0.0, 1.0) / 16.0;
+	return uv;
+}
 ]]
 
-local terrain_mesh_shader = love.graphics.newShader(shader_common_stuff..shader_3d_stuff..shader_terrain_stuff..shader_noise_stuff..[[
+local terrain_mesh_shader = love.graphics.newShader(shader_common_stuff..shader_noise_stuff..shader_3d_stuff..shader_terrain_stuff..[[
 extern Image colour_map;
 
 varying vec3 v_normal;
@@ -351,7 +360,7 @@ vec4 position(mat4 transform_projection, vec4 vertex_position) {
 #ifdef PIXEL
 vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen_coords) {
 	//offset
-	uv.x += noise(v_pos * 0.2, 0.0, 1.0) / 16.0;
+	uv = offset_terrain_read_uv(uv, v_pos);
 	
 	color.rgb = Texel(colour_map, uv).rgb;
 
@@ -393,12 +402,13 @@ vec4 position(mat4 transform_projection, vec4 vertex_position) {
 		)
 	);
 	voff = voff * 2.0;
-	uv += voff / terrain_res;
 
+	uv += voff / terrain_res;
 	vertex_position.xy += voff;
 
+	vec2 root_pos = vertex_position.xy;
+
 	float tree_angle = noise(uv * 256 + vec2(158, 98), 0.0, 1.0) * 10.0 * TAU;
-	vertex_position.xy += rotate(VertexEdgeInfo.xy * 0.5 + abs(voff * 0.25), tree_angle);
 
 	//sample
 	vec4 t = Texel(terrain, uv);
@@ -411,6 +421,9 @@ vec4 position(mat4 transform_projection, vec4 vertex_position) {
 	float veg_allowed = float(vt.a > 0.75);
 
 	float veg_amount = t.z * veg_allowed;
+
+	//extrude tree
+	vertex_position.xy += rotate(VertexEdgeInfo.xy * 0.5 + abs(voff * 0.25), tree_angle) * mix(0.2, 1.0, veg_amount);
 
 	bool is_point = (VertexEdgeInfo.z == 1.0);
 	float point = float(is_point);
@@ -437,15 +450,16 @@ vec4 position(mat4 transform_projection, vec4 vertex_position) {
 	VaryingColor.rgb = vt.rgb + hash3(uv * 1000.0) * -0.05;
 	
 	//mix with underlying colour
+	vec2 cuv = offset_terrain_read_uv(luv, root_pos);
 	VaryingColor = mix(
-		Texel(colour_map, luv),
+		Texel(colour_map, cuv),
 		VaryingColor,
 		veg_amount * mix(0.3, 0.7, point)
 	);
 
 	float h = 
 		height(luv)
-		+ mix(0.05, 1.0, point) * veg_height_scale * mix(1.0, veg_amount, point);
+		+ mix(-0.05, 1.0, point) * veg_height_scale * mix(1.0, veg_amount, point);
 
 	//forward to frag for grad map lookup
 	VaryingTexCoord.xy = luv;
@@ -468,7 +482,7 @@ vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords) {
 #endif
 ]])
 
-local sea_mesh_shader = love.graphics.newShader(shader_common_stuff..shader_3d_stuff..shader_terrain_stuff..shader_noise_stuff..[[
+local sea_mesh_shader = love.graphics.newShader(shader_common_stuff..shader_noise_stuff..shader_3d_stuff..shader_terrain_stuff..[[
 extern float sea_level;
 float sea_grad_depth = 0.5;
 float sea_foam_ratio = 0.5;

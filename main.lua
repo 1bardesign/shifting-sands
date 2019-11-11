@@ -165,10 +165,29 @@ function love.load()
 
 	local climates = {
 		"cold",
-		"wet",
+		"boreal",
+		"swamp",
 		"temperate",
+		"autumnal",
 		"dry",
+		"desert",
 	}
+
+	--pick a random range within the climates
+	local climate_count = love.math.random(1, 3)
+	while #climates > climate_count do
+		local i = love.math.random() < 0.5 and 1 or #climates
+		table.remove(climates, i)
+	end
+	--randomly flip order
+	if love.math.random() < 0.5 then
+		local rclimates = {}
+		for i,v in ipairs(climates) do
+			table.insert(rclimates, 1, v)
+		end
+		climates = rclimates
+	end
+
 	colour_map = love.image.newImageData(16, #climates)
 	vegetation_map = love.image.newImageData(16, #climates)
 	height_map = love.image.newImageData(16, #climates)
