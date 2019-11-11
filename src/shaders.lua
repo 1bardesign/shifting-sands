@@ -36,21 +36,12 @@ mat4 camera_from_to(vec3 from, vec3 to) {
 	float d_r = dot(right, -from);
 	float d_u = dot(up, -from);
 	float d_f = dot(forward, -from);
-#if 1
 	return mat4(
 		right.x, up.x, forward.x, 0.0,
 		right.y, up.y, forward.y, 0.0,
 		right.z, up.z, forward.z, 0.0,
 		d_r,     d_u,  d_f,       1.0
 	);
-#else
-	return mat4(
-		right.x,   right.y,   right.z,   d_r,
-		up.x,      up.y,      up.z,      d_u,
-		forward.x, forward.y, forward.z, d_f,
-		0.0,       0.0,       0.0,       1.0
-	);
-#endif
 }
 
 mat4 proj(vec2 screen, float fov, float near, float far) {
