@@ -85,7 +85,7 @@ vec4 transform_to_screen(vec4 v) {
 			//perspective cam with matrix
 			v = proj(love_ScreenSize.xy, 1.0, 1.0, 1000.0) * v;
 		} else {
-			//fisheye perspective
+			//fisheye perspective (experimental, needs rescaling)
 			v.z = -(length(v.xyz) * 0.5);
 			v.xy /= -(v.z);
 			v.z /= 1000.0;
