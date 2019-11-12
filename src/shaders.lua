@@ -422,6 +422,11 @@ vec4 position(mat4 transform_projection, vec4 vertex_position) {
 
 	float veg_amount = t.z * veg_allowed;
 
+	if(veg_amount <= 0.0) {
+		//clip with NaN
+		return vec4(1.0 / 0.0);
+	}
+
 	//extrude tree
 	vertex_position.xy += rotate(VertexEdgeInfo.xy * 0.5 + abs(voff * 0.25), tree_angle) * mix(0.2, 1.0, veg_amount);
 
@@ -429,13 +434,6 @@ vec4 position(mat4 transform_projection, vec4 vertex_position) {
 	float point = float(is_point);
 
 	vec3 normal = Texel(terrain_grad, uv).rgb;
-	
-	veg_amount *= mix(-100.0, 1.0, normal.z);
-
-	if(veg_amount <= 0.0 && is_point) {
-		//clip with NaN
-		return vec4(1.0 / 0.0);
-	}
 
 	//write normal
 	v_normal = normalize(
